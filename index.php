@@ -32,12 +32,45 @@
 	<select id="fileSelector">
 		<option value="" selected="true" disabled="disabled">Choose a file</option>
 		<?php
-			$dir    = './files';
-			$files = scandir($dir);
-			foreach( $files as $filename ){
-				$filename = basename($filename);
-				if ($filename != '.' && $filename != '..') {
-					echo '<option value="files/' . $filename . '">' . $filename . '</option>';
+			function getFileList($dir, $recurse=false) {
+				$retval = array();
+
+				// add trailing slash if missing
+				if(substr($dir, -1) != "/") $dir .= "/";
+
+				// open pointer to directory and read list of files
+				$d = @dir($dir) or die("getFileList: Failed opening directory $dir for reading");
+				while(false !== ($entry = $d->read())) {
+					// skip hidden files
+					if($entry[0] == ".") continue;
+					if(is_dir("$dir$entry")) {
+						$retval[] = array(
+							"name" => "$dir$entry/",
+							"type" => filetype("$dir$entry"),
+							"size" => 0,
+							"lastmod" => filemtime("$dir$entry")
+						);
+						if($recurse && is_readable("$dir$entry/")) {
+							$retval = array_merge($retval, getFileList("$dir$entry/", true));
+						}
+					} elseif(is_readable("$dir$entry")) {
+						$retval[] = array(
+							"name" => "$dir$entry",
+							"size" => filesize("$dir$entry"),
+							"lastmod" => filemtime("$dir$entry")
+						);
+					}
+				}
+				$d->close();
+
+				return $retval;
+			}
+
+			$files = getFileList("./files", true);
+			foreach( $files as $file ){
+				$filename = $file['name'];
+				if ($filename != '.' && $filename != '..' && substr($filename, -1) != '/' ) {
+					echo '<option value="' . $filename . '">' . str_replace('./files/','',$filename) . '</option>';
 				}
 			}
 		?>
@@ -63,7 +96,6 @@
 		<div id="canvas-overlay" class="diagnostic"></div>
 		<div id="x-axis" class="diagnostic"></div>
 		<div id="y-axis" class="diagnostic"></div>
-		<audio id="buzzer" src="http://www.joshrenaud.com/experiments/atascii-html5/sound/buzzer.mp3" preload="auto"></audio>
 	</div>
 	</section>
 
@@ -75,25 +107,17 @@
 	<canvas id="strokePattern" class="container"></canvas>
 
 	<section id="background-info" style="display:none;">
-	<h3>What is ATASCII?</h3>
-	<p>'ATASCII' means 'Atari ASCII.' It was a character set specific to Atari's 8-bit line of computers.</p>
-	<p>The ATASCII character set contained English alphanumeric characters, plus other shapes and symbols. People would arrange these symbols on the screen to make illustrations and art.</p>
-	<p>It was also possible to create rudimentary animations by using terminal commands to move the cursor around the screen. These animations could then be saved as text files and played back later.</p>
-	<p>Here are a few places to learn more about ATASCII and ATASCII animations:</p>
+	<h3>What is RIP?</h3>
+	<p></p>
+	<p>Here are a few places to learn more about RIPscrip:</p>
 	<ul>
-		<li>The <a href="https://web.archive.org/web/20010210232933/http://www.flash.net/~ambrosia/home2.htm">Break Movie Warehouse</a>, as archived by the Wayback Machine</li>
-		<li>Examples of animations at <a href="http://breakintochat.com/blog/2014/05/07/atascii-animations/">Break Into Chat</a></li>
-		<li><a href="http://www.atarimagazines.com/v4n4/toons.html">"Atari Toons"</a> article from 1985 issue of ANTIC</li>
-		<li><a href="https://en.wikipedia.org/wiki/ATASCII">ATASCII article</a> at wikipedia.org</li>
-		<li><a href="http://justsolve.archiveteam.org/wiki/ATASCII">ATASCII article</a> at Just Solve the File Format Problem</li>
-		<li><a href="http://www.atariarchives.org/mapping/appendix10.php">"Mapping the Atari"</a>, appendix 10</li>
-		<li><a href="http://joyfulcoder.net/atari/atascii/">ATASCII table</a> at joyfulcoder.net</li>
+		<li></li>
 	</ul>
 	</section>
 
-	<script src="console.snapshot.js"></script>
-	<!-- polyfill for add ellipse() and a few other canvas-related stuff -->
+	<!-- polyfill for add ellipse() and a few other canvas-related things -->
 	<script src="canvasv5.js"></script>
+	<script src="borland.js"></script>
 	<script src="ripscrip.js?4"></script>
 
 </body>

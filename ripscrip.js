@@ -58,17 +58,58 @@ var fullScreenMode = false;
 var screen;
 var cursor = {'x':0,'y':0};
 
-var img = new Image();
-// if you don't wait for onload, then nothing happens.
-img.onload = function () {
-	var atasciifont = new Sprite(img, 16, 16);
-	screen = new Screen(cols, rows, atasciifont);
-	screen.initialize();
-	screen.draw();
-	var fs = document.getElementById('fileSelector');
-	fs.style.display = 'block';
+
+// LOAD AND PARSE ALL THE BORLAND FONTS
+var loadFontFile = function (filePath, done) {
+	var xhr = new XMLHttpRequest();
+	xhr.onload = function () { return done(this.response) }
+	xhr.open("GET", filePath, true);
+	xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+	xhr.responseType = "arraybuffer";
+	xhr.send();
 }
-img.src = 'http://breakintochat.com/collections/atascii/fontsets/atari-8bit-blue.png';
+var fontUrls = [
+	null,
+	'fonts/01-TRIP.CHR',
+	'fonts/02-LITT.CHR',
+	'fonts/03-SANS.CHR',
+	'fonts/04-GOTH.CHR',
+	'fonts/05-SCRI.CHR',
+	'fonts/06-SIMP.CHR',
+	'fonts/07-TSCR.CHR',
+	'fonts/08-LCOM.CHR',
+	'fonts/09-EURO.CHR',
+	'fonts/0A-BOLD.CHR'
+];
+var fonts = [];
+
+// Load and parse each of the 10 fonts
+fontUrls.forEach(function (url, i) {
+	if (url) {
+		loadFontFile(url, function (response) {
+			fonts[i] = convertFont( response );
+			// When arrays are same length, we're done load font files.
+			// Now it's time to do ANOTHER asynchronous load: the img.
+			if (fonts.length === fontUrls.length ) {
+				var img = new Image();
+				// if you don't wait for onload, then nothing happens.
+				img.onload = function () {
+					var atasciifont = new Sprite(img, 16, 16);
+					screen = new Screen(cols, rows, atasciifont);
+					screen.initialize();
+					screen.draw();
+					var fs = document.getElementById('fileSelector');
+					fs.style.display = 'block';
+				}
+				img.src = 'http://breakintochat.com/collections/atascii/fontsets/atari-8bit-blue.png';
+			}
+		});
+	}
+	else {
+		fonts[i] = null;
+	}
+});
+
 
 document.getElementById('fileSelector').onchange = function() {
 	var elem = (typeof this.selectedIndex === "undefined" ? window.event.srcElement : this);
@@ -596,6 +637,11 @@ function convert (SS) {
 	return parseInt( SS, 36);
 }
 
+
+var fontStyle = 1;
+var fontDirection = 0;
+var fontSize = 1;
+
 // Values from Wikipedia table here: https://upload.wikimedia.org/wikipedia/commons/d/df/EGA_Table.PNG
 var masterPalette = [
 	'#000000',
@@ -955,14 +1001,17 @@ function applyLineStyle() {
 	console.log(dashes);
 	console.log(strokeColor);
 
-// 	if (dashes['array'].length < 1 ) {
 	// Right now this is a big kludge. Basically if there are no dashes,
-	// then I make the stroke invisible. I do the same thing if 
-	// the strokecolor is set to the background color AND the
-	// stroke width is less than 3. I need to revisit this later
-	// because I'm sure there's a better way to keep the #000000
-	// strokes off.
-	if ( dashes['array'].length < 1 || (strokeColor == masterPalette[ currentPalette[0] ] && strokeThick < 3 ) ) {
+	// then I make the stroke invisible.
+	//
+	// SIDENOTE:
+	// In the past, I also made stroke invisible if the strokecolor was set
+	// to the background color AND if the stroke width was less than 3.
+	//
+	// After looking at the Valhalla RIP, It seems like maybe instead
+	// of making the stroke invisible here, I should do that in the dPoly function.
+	// END SIDENOTE
+	if ( dashes['array'].length < 1 ) {
 		context.strokeStyle = 'rgba(0,0,0,0)';
 	}
 	// If there are dashes, use the foreground color
@@ -971,7 +1020,6 @@ function applyLineStyle() {
 	}
 
 	// If there are dashes then set the LineDash style
-// 	if ( dashes['array'].length > 1 ) {
 	if ( dashes['array'].length > 1) {
 		context.setLineDash( dashes['array'] );
 	}
@@ -1056,26 +1104,176 @@ function setFillStyle ( p1, p2 ) {
 
 
 
-function setTextStyle ( p1, p2, p3 ) {
-	console.log('setTextStyle|',p1, p2, p3);
-	// coming later
+function displayRipText( msg, theFont, context, mx, my, scale ) {
+	console.log( 'displayRipText| color: ' + strokeColor);
+	var scale = scale/4;
+	for (var m=0; m<msg.length; m++) {
+		var theChar = theFont.getCharByName( msg[m] );
+		var charW = theChar.getWidth();
+
+		context.setLineDash( [] );
+		context.lineJoin = 'bevel';
+		context.strokeStyle = strokeColor;
+		context.lineWidth = 1;
+		context.beginPath();
+
+		// Iterate over drawing commands
+		for (var d=0; d<theChar.getLength(); d++) {
+			var theCmd = theChar.getCmdByIndex(d);
+			var cmd = theCmd.getCmd();
+			var x = theCmd.getX();
+			var y = theCmd.getY();
+			y = Math.abs( y - theFont.y_max );
+
+			if (cmd == 'END') { }
+			else if (cmd == 'SCAN') { }
+			else if (cmd == 'MOVE') { 
+				context.beginPath();
+				context.moveTo( mx + (x*scale+1), my + (y*scale) );
+			}
+			else if (cmd == 'DRAW') { 
+				context.lineTo( mx + (x*scale+1), my + (y*scale) );
+				context.stroke();
+			}
+		}
+		mx = mx + (charW*scale);
+	}
+	// Reset the current draw colors, line patterns, etc.
+	applyLineStyle();
 }
-function outTextXY ( p1, p2, p3 ) {
-	console.log('outTextXY|',p1, p2, p3);
-	// coming later
+
+
+
+
+
+// ---------------------------------------------------------------------
+// RIP_FONT_STYLE
+// ---------------------------------------------------------------------
+//          Function:  Select current font style, orientation and size
+//             Level:  0
+//           Command:  Y
+//         Arguments:  font:2, direction:2, size:2, res:2
+//            Format:  !|Y <font> <direction> <size> <res>
+//           Example:  !|Y01000400
+//   Uses Draw Color:  NO
+// Uses Line Pattern:  NO
+//   Uses Line Thick:  NO
+//   Uses Fill Color:  NO
+// Uses Fill Pattern:  NO
+//   Uses Write Mode:  NO
+//   Uses Font Sizes:  YES
+//     Uses Viewport:  NO                                                > v1.54
+// 
+// This command sets the font, direction and size for RIP_TEXT commands.
+// 
+//      Font   Description of Font
+//      ---------------------------------------------
+//      00     Default 8x8 font            Bit-Mapped
+//      01     Triplex Font                Scalable
+//      02     Small Font                  Scalable
+//      03     Sans Serif Font             Scalable
+//      04     Gothic [Old English] Font   Scalable
+//      05     Script Font                 Scalable
+//      06     Simplex Font                Scalable
+//      07     Triplex Script Font         Scalable
+//      08     Complex Font                Scalable
+//      09     European Font               Scalable
+//      0A     Bold Font                   Scalable
+// 
+// For the Direction parameter, use 00 to indicate horizontal and 01 for
+// vertical.
+// 
+// For the Size parameter, use 01 for the normal default size, 02 for x2
+// magnification, 03 for x3 magnification, ... , and 0A for x10
+// magnification.
+// 
+// NOTE:  The Default font is bit-mapped and looks best when drawn in
+//        size 1.  In sizes greater than one, the individual pixels are
+//        enlarged, giving a jagged look.  This may not be the desired
+//        effect.  The fonts 1 - 4 are smooth scalable vector fonts.
+
+
+
+function setTextStyle ( p1, p2, p3, p4 ) {
+	console.log('setTextStyle|',p1, p2, p3, p4);
+	// Update global font variables with new values
+	fontStyle = p1;
+	fontDirection = p2;
+	fontSize = p3;
+	console.log('fontStyle: ' + p1 + ' | fontDir: ' + p2 + ' | fontSize: ' + p3 + ' | Reserved: ' + p4);
 }
+
+// ---------------------------------------------------------------------
+// RIP_TEXT_XY
+// ---------------------------------------------------------------------
+//          Function:  Draw text in current font/color at specific spot
+//             Level:  0
+//           Command:  @
+//         Arguments:  x:2, y:2 and text-string
+//            Format:  !|@ <x> <y> <text-string>
+//           Example:  !|@0011hello world
+//   Uses Draw Color:  YES
+// Uses Line Pattern:  NO
+//   Uses Line Thick:  NO
+//   Uses Fill Color:  NO
+// Uses Fill Pattern:  NO
+//   Uses Write Mode:  YES
+//   Uses Font Sizes:  YES
+//     Uses Viewport:  YES                                               > v1.54
+// 
+// This command is an efficient combination of RIP_MOVE and RIP_TEXT.
+// The text is drawn at the specified location according to the same
+// settings as apply to RIP_TEXT (see above).
+// 
+// The current drawing position is set immediately to the right of the
+// drawn text.  Subsequent Line, Circle or other such commands will not
+// affect this position.  This provides a means so that you can quickly
+// do another RIP_TEXT command (presumably in another color) at a later
+// time and have the text show up immediately after the previous text.
+
+function outTextXY ( mx, my, msg ) {
+	console.log('outTextXY|', mx, my, msg);
+	// Haven't yet implemented the default 8x8 font.
+	if (fontStyle) {
+		displayRipText( msg, fonts[fontStyle], context, mx, my, fontSize );
+	}
+}
+
+
 
 
 // temporary global variables while I try to sort out this flood fill algorithm
 var visited = [];
 var num_flood_calls = 0;
 
+
+// REWRITE THIS TO USE H,S,L ?  Check the hue?
+
 function colorsAreSimilar( first, second ) {
-	if (
-		( first[0] >= second[0] - 3 && first[0] <= second[0] + 3 ) &&
-		( first[1] >= second[1] - 3 && first[1] <= second[1] + 3 ) &&
-		( first[2] >= second[2] - 3 && first[2] <= second[2] + 3 )
-	) {
+	var r0 = first[0];
+	var g0 = first[1];
+	var b0 = first[2];
+	var r1 = second[0];
+	var g1 = second[1];
+	var b1 = second[2];
+
+	// // color sizes
+	// var c0 = Math.sqrt( r0*r0 + g0*g0 + b0*b0 );
+	// var c1 = Math.sqrt( r1*r1 + g1*g1 + b1*b1 );
+
+	// // distance between normalized colors
+	// var dist = Math.sqrt((r0*c1-r1*c0)^2 + (g0*c1-g1*c0)^2 + (b0*c1-b1*c0)^2) / (c0*c1);
+	// console.log(c0, c1, dist);
+
+	var rmean = ( r0 + r1 ) / 2;
+	var r = r0 - r1;
+	var g = g0 - g1;
+	var b = b0 - b1;
+
+    var dist = Math.sqrt((((512+rmean)*r*r)>>8) + 4*g*g + (((767-rmean)*b*b)>>8));
+	// console.log( first, second, dist );
+
+	if ( dist < 300 ) {
 		return true;
 	}
 	return false;
@@ -1105,6 +1303,8 @@ function floodFill ( x, y, border_color ) {
 	var pixel = context.getImageData(x,y,1,1);
 	var pixel_rgb = [ pixel.data[0], pixel.data[1], pixel.data[2] ];
 	var border_rgb = hexToRgb( masterPalette[ currentPalette[border_color] ] );
+	var fill_rgb = hexToRgb( fillColor );
+
 // 	console.log( 'COMPARISON: pixel_rgb ' + pixel_rgb + ' | border_rgb ' + border_rgb );
 	if (num_flood_calls == 3261 || num_flood_calls == 3262 || num_flood_calls == 3263 || num_flood_calls == 3264 || num_flood_calls == 3265 || num_flood_calls == 3266 || num_flood_calls == 3267 ) {
 		console.log( num_flood_calls, pixel.data );
@@ -1140,8 +1340,8 @@ function floodFill ( x, y, border_color ) {
 
 		for (var n=0; n<neighbors.length; n++ ) {
 			var nslug = neighbors[n][0] + ',' + neighbors[n][1];
-			if ( 
-				num_flood_calls < 3267 &&
+			if (
+				num_flood_calls < Infinity &&
 				visited.indexOf( nslug ) == -1 &&
 				neighbors[n][0] > -1 &&
 				neighbors[n][1] > -1 &&
@@ -1154,11 +1354,33 @@ function floodFill ( x, y, border_color ) {
     }
 }
 
-// - - - - - - - - - - - - - - - - - - - 
+function strokeRepeatedly() {
+	var repeat;
+	if (strokeThick==1) {
+		repeat = 200;
+	}
+	else {
+		repeat = 200;
+	}
+	for (var rr=0;rr<repeat;rr++) {
+		context.stroke();
+	}
+}
+
+function fillRepeatedly() {
+	var repeat = 200;
+	for (var rr=0;rr<repeat;rr++) {
+		context.fill();
+	}
+}
+
+
+
+// - - - - - - - - - - - - - - - - - - -
 //
 // LINES AND EMPTY SHAPES
 //
-// - - - - - - - - - - - - - - - - - - - 
+// - - - - - - - - - - - - - - - - - - -
 
 function circle ( xCenter, yCenter, radius ) {
 	console.log('circle|', xCenter, yCenter, radius );
@@ -1171,13 +1393,14 @@ function circle ( xCenter, yCenter, radius ) {
 	ellipse ( xCenter, yCenter, 0, 360, radius, yRadius );
 }
 
-// RIP_OVAL  or  RIP_OVAL_ARC
+	// RIP_OVAL  or  RIP_OVAL_ARC
 function ellipse ( xCenter, yCenter, startAngle, endAngle, xRadius, yRadius ) {
 	console.log('ellipse|', xCenter, yCenter, startAngle, endAngle, xRadius, yRadius );
 	context.beginPath();
 	//x, y, radiusX, radiusY, rotation, startAngle, endAngle, antiClockwise
 	context.ellipse(xCenter, yCenter, xRadius, yRadius, 0, (startAngle*-1)*Math.PI/180, (endAngle*-1)*Math.PI/180,true);
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 // RIP_ARC
@@ -1189,6 +1412,7 @@ function arc ( xCenter, yCenter, startAngle, endAngle, radius ) {
 	// while HTML5 uses clockwise angles.
 	context.arc(xCenter, yCenter, radius, (startAngle*-1)*Math.PI/180, (endAngle*-1)*Math.PI/180,true);
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 function drawBezierCurve ( x1,y1,x2,y2,x3,y3,x4,y4,count ) {
@@ -1200,6 +1424,7 @@ function drawBezierCurve ( x1,y1,x2,y2,x3,y3,x4,y4,count ) {
 	context.moveTo( x1, y1 );
 	context.bezierCurveTo( x2, y2, x3, y3, x4, y4 );
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 function line ( x0, y0, x1, y1 ) {
@@ -1209,32 +1434,34 @@ function line ( x0, y0, x1, y1 ) {
 // 	console.log('   line-dash-offset: ', context.lineDashOffset );
 // 	console.log('   line-width: ', context.lineWidth );
 // 	console.log('   line-dash: ', context.getLineDash() );
-	if (strokeThick == 1) {
-		x0 += 0.5;
-		y0 += 0.5;
-		x1 += 0.5;
-		y1 += 0.5;
-	}
+	// if ( strokeThick == 1 && (x0==x1 || y0==y1) ) {
+	// 	x0 += 0.5;
+	// 	y0 += 0.5;
+	// 	x1 += 0.5;
+	// 	y1 += 0.5;
+	// }
 	context.beginPath();
 	context.moveTo(x0,y0);
 	context.lineTo(x1,y1);
 	context.stroke();
+	// strokeRepeatedly();
 }
 function rectangle ( x0, y0, x1, y1 ) {
 	console.log('rectangle|', x0, y0, x1, y1 );
 	console.log('strokeThick: ' + strokeThick);
-	if (strokeThick == 1) {
-		x0 += 0.5;
-		y0 += 0.5;
-		x1 += 0.5;
-		y1 += 0.5;
-	}
+	// if (strokeThick == 1) {
+	// 	x0 += 0.5;
+	// 	y0 += 0.5;
+	// 	x1 += 0.5;
+	// 	y1 += 0.5;
+	// }
 	var width = x1-x0;
 	var height = y1-y0;
 	context.beginPath();
 	// x,y = upper left corner
 	context.rect( x0, y0, width, height );
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 function dPoly ( isFilled, isPoly, nPoints, command ) {
@@ -1248,23 +1475,29 @@ function dPoly ( isFilled, isPoly, nPoints, command ) {
 	}
 	// reshape to 2d array
 	var points = [];
-	while (newNums.length) { 
-		points.push(newNums.splice(0,2)); 
+	while (newNums.length) {
+		points.push(newNums.splice(0,2));
 	}
 
-	// If I repeatedly draw shape, it "darkens" the antialiased edges of the stroke.
-	// Repeating ~20 times gets it good and dark.
-	for (var repeat=0; repeat<1; repeat++ ) {
-		context.beginPath();
-		context.moveTo( points[0][0], points[0][1] );
-		for (p=1; p<points.length; p++ ) {
-			context.lineTo( points[p][0], points[p][1] );
+	context.beginPath();
+	context.moveTo( points[0][0], points[0][1] );
+	for (p=1; p<points.length; p++ ) {
+		context.lineTo( points[p][0], points[p][1] );
+	}
+	// FILLED POLYGON IS THE ONLY SHAPE THAT NEEDS CLOSEPATH()
+	if (isFilled) {
+		context.closePath();
+		context.fill();
+		// fillRepeatedly()
+		// If this is a FILLED polygon and the stroke is set to the background color,
+		// then we don't want to actually draw the stroke.
+		if ( strokeColor != masterPalette[ currentPalette[0] ] ) {
+			//strokeRepeatedly();
+			context.stroke();
 		}
-		// FILLED POLYGON IS THE ONLY SHAPE THAT NEEDS CLOSEPATH()
-		if (isFilled) {
-			context.closePath();
-			context.fill();
-		}
+	}
+	else {
+		//strokeRepeatedly();
 		context.stroke();
 	}
 }
@@ -1283,6 +1516,7 @@ function bar ( x0, y0, x1, y1 ) {
 	// x,y = upper left corner
 	context.rect( x0, y0, width, height );
 	context.fill();
+	// fillRepeatedly()
 }
 function fillEllipse ( xCenter, yCenter, xRadius, yRadius ) {
 	console.log('fillEllipse|', xCenter, yCenter, xRadius, yRadius);
@@ -1290,7 +1524,9 @@ function fillEllipse ( xCenter, yCenter, xRadius, yRadius ) {
 	//x, y, radiusX, radiusY, rotation, startAngle, endAngle, antiClockwise
 	context.ellipse(xCenter, yCenter, xRadius, yRadius, 0, 0, 2 * Math.PI);
 	context.fill();
+	// fillRepeatedly()
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 // RIP_PIE_SLICE
@@ -1301,11 +1537,15 @@ function pieSlice ( xCenter, yCenter, startAngle, endAngle, radius ) {
 	context.arc(xCenter, yCenter, radius, (startAngle*-1)*Math.PI/180, (endAngle*-1)*Math.PI/180,true);
  	context.lineTo(xCenter, yCenter);
 	context.fill();
+	// fillRepeatedly()
+
 	// RIP 1.54 says "The Line Pattern feature does not apply to this command."
 	// So, probably need to revisit this. Also check against RIP 2.00.
 	// Pablo seems to draw no stroke on the curve, but DOES stroke the straight
 	// lines connecting to the center point.
+
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 //RIP_OVAL_PIE_SLICE
@@ -1317,11 +1557,14 @@ function sector ( xCenter, yCenter, startAngle, endAngle, xRadius, yRadius ) {
 	context.ellipse(xCenter, yCenter, xRadius, yRadius, 0, (startAngle*-1)*Math.PI/180, (endAngle*-1)*Math.PI/180, true);
  	context.lineTo(xCenter, yCenter);
 	context.fill();
+	// fillRepeatedly()
 	// RIP 1.54 says "The Line Pattern feature does not apply to this command."
 	// So, probably need to revisit this. Also check against RIP 2.00.
 	// Pablo seems to draw no stroke on the curve, but DOES stroke the straight
 	// lines connecting to the center point.
+
 	context.stroke();
+	// strokeRepeatedly();
 }
 
 function hexToRgb( hex ) {
@@ -1411,12 +1654,19 @@ function parseCommand ( command ) {
 			convert ( command.substr(1,2) )
 		);
 	}
-
+	if (command.charAt(0) == '@') {
+		outTextXY (
+			convert ( command.substr(1,2) ),
+			convert ( command.substr(3,2) ),
+			command.substr(5,command.length-5)
+		);
+	}
 	if (command.charAt(0) == 'Y') {
 		setTextStyle (
 			convert ( command.substr(1,2) ),
 			convert ( command.substr(3,2) ),
-			convert ( command.substr(5,2) )
+			convert ( command.substr(5,2) ),
+			convert ( command.substr(7,2) )
 		);
 	}
 	if (command.charAt(0) == 's') { 
@@ -1437,13 +1687,6 @@ function parseCommand ( command ) {
 			command.slice(1)
 		);
 	};
-	if (command.charAt(0) == '@') {
-		outTextXY (
-			convert ( command.substr(1,2) ),
-			convert ( command.substr(3,2) ),
-			command.substr(5,command.length-5)
-		);
-	}
 	if ( command.charAt(0) == 'F' ) {
 		visited = [];
 		num_flood_calls = 0;
@@ -1454,11 +1697,12 @@ function parseCommand ( command ) {
 			convert ( command.substr(3,2) ),
 			convert ( command.substr(5,2) )
 		);
-		floodFill (
-			convert ( command.substr(1,2) ),
-			convert ( command.substr(3,2) ),
-			convert ( command.substr(5,2) )
-		);
+		// Not working well enough yet
+// 		floodFill (
+// 			convert ( command.substr(1,2) ),
+// 			convert ( command.substr(3,2) ),
+// 			convert ( command.substr(5,2) )
+// 		);
 	}
 	if ( command.charAt(0) == 'C' ) {
 		circle (
@@ -1546,8 +1790,12 @@ function parseCommand ( command ) {
 			convert ( command.substr(11,2) )
 		);
 	}
-	// NEED TO RE-DO DPOLY
-	// We need to pass the command into the function so it can parse coordinate pairs
+	// RIP_POLYGON
+	//   Uses Draw Color:  YES
+	// Uses Line Pattern:  YES
+	//   Uses Line Thick:  YES
+	//   Uses Fill Color:  NO
+	// Uses Fill Pattern:  NO
 	if (command.charAt(0) == 'P') {
 		dPoly (
 			false,
@@ -1556,8 +1804,13 @@ function parseCommand ( command ) {
 			command.slice(3)
 		);
 	};
-	// NEED TO RE-DO DPOLY
-	// We need to pass the command into the function so it can parse coordinate pairs
+
+	// RIP_FILL_POLYGON
+	//   Uses Draw Color:  YES
+	// Uses Line Pattern:  YES
+	//   Uses Line Thick:  YES
+	//   Uses Fill Color:  YES
+	// Uses Fill Pattern:  YES
 	if (command.charAt(0) == 'p') {
 		dPoly (
 			true,
@@ -1591,6 +1844,12 @@ function parseCommand ( command ) {
 
 	// NEED TO RE-DO DPOLY
 	// We need to pass the command into the function so it can parse coordinate pairs
+	// RIP_POLYLINE
+	//   Uses Draw Color:  YES
+	// Uses Line Pattern:  YES
+	//   Uses Line Thick:  YES
+	//   Uses Fill Color:  NO
+	// Uses Fill Pattern:  NO
 	if ( command.charAt(0) == 'l' ) {
 		dPoly (
 			false,
@@ -1652,13 +1911,15 @@ function parseCommand ( command ) {
 				convert ( command.substr(12,2) )
 			);
 		}
+		else {
+			console.log('UNIMPLEMENTED COMMAND: ' + command);
+		}
 	};
 };
 
 
 
 function parseChar( charCode ) {
-// 	console.log(' charCode: ' + charCode + '(' + String.fromCharCode(charCode) + ') ripLine: ' + ripLine + ' bslash: ' + bslash + ' LLL: ' + LLL);
 	// This is EOF, and can mark the beginning of a SAUCE record
 	// Since SAUCE is 128 bytes, just skip over them and we're done.
 	if ( charCode == 26 ) {
